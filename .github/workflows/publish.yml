@@ -1,0 +1,45 @@
+# Publishes surprises for Mars's watches.
+#
+# To publish update N, push a folder releases/vN/ holding:
+#   firmware.bin  the build for the watch
+#   title.txt     one line, shown under "New surprise!" on the watch
+# This turns every folder that has no release yet into release vN with
+# firmware.bin attached. Watches on Wi-Fi pick up the newest one.
+name: Publish surprise
+
+on:
+  push:
+    branches: [main]
+    paths: ["releases/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: publish
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create missing releases, oldest first
+        run: |
+          for dir in $(ls -d releases/v*/ 2>/dev/null | sort -V); do
+            tag=$(basename "$dir")
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "$tag already published"
+              continue
+            fi
+            if [ ! -f "$dir/firmware.bin" ]; then
+              echo "::warning::$tag has no firmware.bin, skipping"
+              continue
+            fi
+            title=$(head -n1 "$dir/title.txt" 2>/dev/null || echo "New surprise!")
+            echo "Publishing $tag: $title"
+            gh release create "$tag" "$dir/firmware.bin" --target "$GITHUB_SHA" \
+              --title "$title" --notes "$title"
+          done
